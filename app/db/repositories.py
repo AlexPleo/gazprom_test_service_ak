@@ -57,5 +57,54 @@ class TaskRepository:
         )
         await self.session.commit()
 
-    # TODO(кандидат): агрегаты для /api/stats считаем здесь ОДНИМ SQL-запросом,
-    # а не выгрузкой всех задач в Python.
+    async def get_stats(self) -> dict:
+        """Агрегаты по задачам одним SQL-запросом (агрегация в БД).
+
+        CTE-запрос с четырьмя скалярными подзапросами в одном SELECT:
+          - total_tasks: COUNT(*) всех задач
+          - by_status_json: GROUP BY status → json_group_object (агрегат в БД)
+          - avg/median processing seconds для DONE-задач (median через
+            ROW_NUMBER() OVER ORDER BY + выбор центрального элемента)
+          - deduplicated_count: SUM(dedup_hit_count) — персистентный счётчик,
+            инкрементируемый атомарным UPDATE в момент обнаружения дубликата
+        """
+        sql = text(
+            """
+            WITH status_counts AS (
+                SELECT status, COUNT(*) AS cnt
+                FROM tasks
+                GROUP BY status
+            ),
+            durations AS (
+                SELECT
+                    (julianday(finished_at) - julianday(created_at)) * 86400.0 AS secs
+                FROM tasks
+                WHERE status = 'DONE' AND finished_at IS NOT NULL
+            ),
+            duration_stats AS (
+                SELECT AVG(secs) AS avg_secs, COUNT(*) AS n
+                FROM durations
+            ),
+            ordered AS (
+                SELECT secs, ROW_NUMBER() OVER (ORDER BY secs) AS rn
+                FROM durations
+            ),
+            median_calc AS (
+                SELECT AVG(secs) AS median_secs
+                FROM ordered, duration_stats
+                WHERE rn IN (
+                    (duration_stats.n + 1) / 2,
+                    (duration_stats.n + 2) / 2
+                )
+            )
+            SELECT
+                (SELECT COUNT(*) FROM tasks) AS total_tasks,
+                (SELECT json_group_object(status, cnt) FROM status_counts) AS by_status_json,
+                (SELECT avg_secs FROM duration_stats) AS avg_processing_seconds,
+                (SELECT median_secs FROM median_calc) AS median_processing_seconds,
+                (SELECT COALESCE(SUM(dedup_hit_count), 0) FROM tasks) AS deduplicated_count
+            """
+        )
+        res = await self.session.execute(sql)
+        row = res.mappings().one()
+        return dict(row)

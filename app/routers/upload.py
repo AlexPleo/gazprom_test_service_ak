@@ -6,6 +6,7 @@
 """
 import asyncio
 import hashlib
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -19,7 +20,7 @@ from app.db.engine import get_session
 from app.db.models import Task, TaskStatus
 from app.db.repositories import TaskRepository
 from app.settings import settings
-from app.schemas.schemas import UploadResponse
+from app.schemas.schemas import UploadResponse, StatsResponse, StatusCount
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -44,7 +45,7 @@ async def get_file_hash(file: UploadFile) -> str:
     """Вычисляет SHA256 потоково, не загружая файл целиком в RAM."""
     sha256_hash = hashlib.sha256()
     # Читаем файл по CHUNK_SIZE мегабайт за раз
-    while chunk := await file.read(settings.CHUNK_SIZE*1024*1024):
+    while chunk := await file.read(settings.CHUNK_SIZE * 1024 * 1024):
         sha256_hash.update(chunk)
 
     await file.seek(0)
@@ -101,4 +102,19 @@ async def classify_zip(
     logger.info("created task_id=%s hash=%s force=%s", task.id, archive_sha256, force)
     return UploadResponse(task_id=task.id, deduplicated=False)
 
-# TODO(кандидат): GET /api/stats — агрегаты по задачам ОДНИМ SQL-запросом.
+
+@router.get("/stats", response_model=StatsResponse)
+async def get_stats(session: AsyncSession = Depends(get_session)):
+    repo = TaskRepository(session)
+    row = await repo.get_stats()
+
+    by_status_raw = json.loads(row["by_status_json"]) if row["by_status_json"] else {}
+    by_status = [StatusCount(status=s, count=c) for s, c in by_status_raw.items()]
+
+    return StatsResponse(
+        total_tasks=row["total_tasks"],
+        by_status=by_status,
+        avg_processing_seconds=row["avg_processing_seconds"],
+        median_processing_seconds=row["median_processing_seconds"],
+        deduplicated_count=row["deduplicated_count"],
+    )

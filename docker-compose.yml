@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./stand.db
+    volumes:
+      - .:/app
+    depends_on:
+      - db

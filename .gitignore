@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Базы/артефакты стендов
+*.db
+*.sqlite3
+*.duckdb
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Окружение и секреты
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+stand.db

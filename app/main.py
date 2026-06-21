@@ -1,10 +1,16 @@
 """Точка входа приложения."""
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.db.engine import init_db
 from app.routers.upload import router as upload_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 @asynccontextmanager
